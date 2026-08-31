@@ -1,0 +1,29 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Fortify Platform",
+        "description": "Paste an API key with the IoT / Sensors entitlement (Fortify Platform → Settings → API Keys → Create key).",
+        "data": {
+          "url": "Platform URL",
+          "api_key": "API key"
+        }
+      },
+      "location": {
+        "title": "Which location is this Home Assistant?",
+        "description": "Sensor events from this site will belong to the location you pick. Room assignments happen in the platform's housing board, not here.",
+        "data": {
+          "location_id": "Location"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "The platform rejected this API key — check it has the IoT / Sensors entitlement.",
+      "cannot_connect": "Could not reach the Fortify Platform at that URL.",
+      "no_locations": "The key works, but its service provider has no locations yet."
+    },
+    "abort": {
+      "already_configured": "This location is already connected."
+    }
+  }
+}

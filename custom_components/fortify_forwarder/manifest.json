@@ -1,0 +1,15 @@
+{
+  "domain": "fortify_forwarder",
+  "name": "Fortify Platform Forwarder",
+  "codeowners": [
+    "@fortifylife"
+  ],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/sweitzja/fortify-platform-iot-forwarder",
+  "integration_type": "service",
+  "iot_class": "cloud_push",
+  "requirements": [],
+  "version": "0.1.0",
+  "issue_tracker": "https://github.com/sweitzja/fortify-platform-iot-forwarder/issues"
+}
