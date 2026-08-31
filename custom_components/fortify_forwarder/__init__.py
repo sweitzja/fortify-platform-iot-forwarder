@@ -14,6 +14,7 @@ from datetime import timedelta
 import aiohttp
 
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import device_registry as dr
@@ -72,7 +73,14 @@ class FortifyForwarder:
             self.queue = stored[-QUEUE_LIMIT:]
             if self.queue:
                 _LOGGER.info("Restored %d queued events from disk", len(self.queue))
-        await self._report_inventory()  # also fetches the initial watch-list
+        if self.hass.is_running:
+            await self._report_inventory()  # also fetches the initial watch-list
+        else:
+            # During boot, slower integrations (Caseta, ZHA) haven't created their entities
+            # yet — a startup inventory would under-report. Wait for HA to finish starting.
+            async def _on_started(_event):
+                await self._report_inventory()
+            self.hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _on_started)
         self._unsubs.append(self.hass.bus.async_listen("state_changed", self._on_state_changed))
         self._unsubs.append(async_track_time_interval(
             self.hass, self._report_inventory, timedelta(minutes=INVENTORY_MINUTES)))
