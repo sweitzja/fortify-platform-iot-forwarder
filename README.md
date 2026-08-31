@@ -1,3 +1,5 @@
+<img src="icon.png" alt="Fortify" width="72" align="left" style="margin-right:12px" />
+
 # Fortify Platform IoT Forwarder
 
 A Home Assistant custom integration that connects a building's sensors to the
