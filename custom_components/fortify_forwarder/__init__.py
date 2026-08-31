@@ -142,6 +142,26 @@ class FortifyForwarder:
             })
         return out[:500]
 
+    def _reassert_active_occupancy(self) -> None:
+        """Latched occupancy sensors (Lutron Caseta) hold 'on' for an entire occupancy
+        instead of pulsing — without this, a 3-hour session stamps only its entry block.
+        Every inventory cycle (10 min < the 15-min block size, so every block gets at
+        least one stamp), re-assert 'on' for occupancy/motion kinds that are still on.
+        Deliberately NOT switches (a light left on in an empty room is not presence)
+        and NOT doors (their state is positional, not presence)."""
+        from datetime import datetime, timezone
+        now_iso = datetime.now(timezone.utc).isoformat()
+        n = 0
+        for entity_id, kind in self.watched.items():
+            if kind != "motion":
+                continue
+            st = self.hass.states.get(entity_id)
+            if st is not None and st.state == "on":
+                self.queue.append({"entityId": entity_id, "state": "on", "ts": now_iso})
+                n += 1
+        if n:
+            _LOGGER.debug("Re-asserted %d active occupancy sensors", n)
+
     async def _report_inventory(self, _now=None) -> None:
         try:
             resp = await self._post("/api/iot/inventory", {
@@ -154,6 +174,8 @@ class FortifyForwarder:
             }
             async_dispatcher_send(self.hass, self.signal)
             _LOGGER.debug("Inventory reported; watching %d entities", len(self.watched))
+            # sustained-occupancy re-assertion rides the same 10-minute cycle
+            self._reassert_active_occupancy()
             # connectivity proven — drain anything the queue is holding
             await self._flush()
         except Exception as e:  # noqa: BLE001 — network failures are routine; queue covers us
