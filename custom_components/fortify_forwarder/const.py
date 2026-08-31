@@ -13,6 +13,9 @@ DEFAULT_URL = "https://sze0buuoa1.execute-api.us-east-1.amazonaws.com/sls"
 CANDIDATE_CLASSES = {
     "motion", "occupancy", "presence", "door", "window", "opening", "garage_door",
 }
+# whole domains reported as candidates: a light/switch flip is a human hand on a wall,
+# so the platform can bind these as activity ("switch" kind — BOTH edges forwarded)
+CANDIDATE_DOMAINS = {"light", "switch"}
 
 # Contract cadences (docs/HA-FORWARDER-CONTRACT.md in FortifyPlatform)
 INVENTORY_MINUTES = 10       # inventory report = heartbeat; platform holds welfare alerts at 20min stale

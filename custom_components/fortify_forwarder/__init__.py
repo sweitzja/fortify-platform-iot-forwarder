@@ -24,7 +24,7 @@ from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.storage import Store
 
 from .const import (
-    CANDIDATE_CLASSES, CONF_API_KEY, CONF_LOCATION_ID, CONF_URL, DOMAIN,
+    CANDIDATE_CLASSES, CANDIDATE_DOMAINS, CONF_API_KEY, CONF_LOCATION_ID, CONF_URL, DOMAIN,
     EVENT_BATCH_MAX, FLUSH_SECONDS, INVENTORY_MINUTES, QUEUE_LIMIT,
 )
 
@@ -103,10 +103,17 @@ class FortifyForwarder:
         dev_reg = dr.async_get(self.hass)
         area_reg = ar.async_get(self.hass)
         out: list[dict] = []
-        for state in self.hass.states.async_all("binary_sensor"):
+        candidates = list(self.hass.states.async_all("binary_sensor"))
+        for domain in CANDIDATE_DOMAINS:
+            candidates.extend(self.hass.states.async_all(domain))
+        for state in candidates:
+            domain = state.entity_id.split(".")[0]
             dc = state.attributes.get("device_class")
-            if dc not in CANDIDATE_CLASSES:
-                continue
+            if domain == "binary_sensor":
+                if dc not in CANDIDATE_CLASSES:
+                    continue
+            else:
+                dc = dc or domain  # lights/switches usually have no device_class
             area_name = ""
             ent = ent_reg.async_get(state.entity_id)
             if ent:
@@ -155,7 +162,10 @@ class FortifyForwarder:
             return
         if old is not None and old.state == new.state:
             return
-        if kind != "door" and new.state != "on":
+        if kind == "switch":
+            if new.state not in ("on", "off"):
+                return  # lights/switches: BOTH edges are activity (off = someone just left)
+        elif kind != "door" and new.state != "on":
             return  # motion/occupancy: forward the on-edge only; doors send both edges
         ts = (new.last_changed or new.last_updated).isoformat()
         self.queue.append({"entityId": entity_id, "state": new.state, "ts": ts})
