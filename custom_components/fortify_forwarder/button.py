@@ -30,6 +30,7 @@ class ResyncButton(ButtonEntity):
             name=f"Fortify Forwarder — {entry.data.get(CONF_LOCATION_NAME, 'site')}",
             manufacturer="Fortify Labs",
             model="HA Forwarder",
+            sw_version=getattr(fwd, "version", None),
         )
 
     async def async_press(self) -> None:

@@ -30,6 +30,7 @@ class _Base(SensorEntity):
             name=f"Fortify Forwarder — {entry.data.get(CONF_LOCATION_NAME, 'site')}",
             manufacturer="Fortify Labs",
             model="HA Forwarder",
+            sw_version=getattr(fwd, "version", None),
         )
 
     async def async_added_to_hass(self) -> None:

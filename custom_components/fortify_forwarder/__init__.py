@@ -35,7 +35,10 @@ PLATFORMS = ["button", "sensor"]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    from homeassistant.loader import async_get_integration
+    integration = await async_get_integration(hass, DOMAIN)
     fwd = FortifyForwarder(hass, entry)
+    fwd.version = str(integration.version or "unknown")
     await fwd.async_start()
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = fwd
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -65,6 +68,7 @@ class FortifyForwarder:
         self._unsubs: list = []
         self._flushing = asyncio.Lock()
         self.signal = f"{DOMAIN}_{entry.entry_id}_update"  # dispatcher topic for status entities
+        self.version: str = "unknown"  # filled from the manifest at setup
 
     # ── lifecycle ────────────────────────────────────────────────────────────────────────
     async def async_start(self) -> None:
