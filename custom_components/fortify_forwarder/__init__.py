@@ -75,11 +75,13 @@ class FortifyForwarder:
                 _LOGGER.info("Restored %d queued events from disk", len(self.queue))
         if self.hass.is_running:
             await self._report_inventory()  # also fetches the initial watch-list
+            await self._push_snapshot()
         else:
             # During boot, slower integrations (Caseta, ZHA) haven't created their entities
             # yet — a startup inventory would under-report. Wait for HA to finish starting.
             async def _on_started(_event):
                 await self._report_inventory()
+                await self._push_snapshot()
             self.hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _on_started)
         self._unsubs.append(self.hass.bus.async_listen("state_changed", self._on_state_changed))
         self._unsubs.append(async_track_time_interval(
@@ -208,6 +210,35 @@ class FortifyForwarder:
             async_dispatcher_send(self.hass, self.signal)
 
     async def async_resync(self) -> None:
-        """The re-sync button: inventory + watch-list + queue flush, immediately."""
+        """The re-sync button: inventory + watch-list + queue flush + state snapshot."""
         _LOGGER.info("Manual re-sync requested")
         await self._report_inventory()
+        await self._push_snapshot()
+
+    def _snapshot_events(self) -> list[dict]:
+        """Current state of every watched entity, stamped with when it ACTUALLY changed —
+        so a restart back-fills truth (light on since 17:42) instead of fabricating
+        boot-time activity. The platform's 72h staleness gate and monotonic lastAt
+        guard handle the rest."""
+        out: list[dict] = []
+        for entity_id, _kind in self.watched.items():
+            st = self.hass.states.get(entity_id)
+            if st is None or st.state in ("unknown", "unavailable"):
+                continue
+            if st.state not in ("on", "off", "open", "closed"):
+                continue
+            out.append({
+                "entityId": entity_id, "state": st.state,
+                "ts": (st.last_changed or st.last_updated).isoformat(),
+            })
+        return out
+
+    async def _push_snapshot(self) -> None:
+        events = self._snapshot_events()
+        if not events:
+            return
+        _LOGGER.info("Pushing state snapshot for %d watched entities", len(events))
+        self.queue.extend(events)
+        if len(self.queue) > QUEUE_LIMIT:
+            del self.queue[: len(self.queue) - QUEUE_LIMIT]
+        await self._flush()
