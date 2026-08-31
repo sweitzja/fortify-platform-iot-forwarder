@@ -146,26 +146,6 @@ class FortifyForwarder:
             })
         return out[:500]
 
-    def _reassert_active_occupancy(self) -> None:
-        """Latched occupancy sensors (Lutron Caseta) hold 'on' for an entire occupancy
-        instead of pulsing — without this, a 3-hour session stamps only its entry block.
-        Every inventory cycle (10 min < the 15-min block size, so every block gets at
-        least one stamp), re-assert 'on' for occupancy/motion kinds that are still on.
-        Deliberately NOT switches (a light left on in an empty room is not presence)
-        and NOT doors (their state is positional, not presence)."""
-        from datetime import datetime, timezone
-        now_iso = datetime.now(timezone.utc).isoformat()
-        n = 0
-        for entity_id, kind in self.watched.items():
-            if kind != "motion":
-                continue
-            st = self.hass.states.get(entity_id)
-            if st is not None and st.state == "on":
-                self.queue.append({"entityId": entity_id, "state": "on", "ts": now_iso})
-                n += 1
-        if n:
-            _LOGGER.debug("Re-asserted %d active occupancy sensors", n)
-
     async def _report_inventory(self, _now=None) -> None:
         try:
             resp = await self._post("/api/iot/inventory", {
@@ -178,8 +158,6 @@ class FortifyForwarder:
             }
             async_dispatcher_send(self.hass, self.signal)
             _LOGGER.debug("Inventory reported; watching %d entities", len(self.watched))
-            # sustained-occupancy re-assertion rides the same 10-minute cycle
-            self._reassert_active_occupancy()
             # connectivity proven — drain anything the queue is holding
             await self._flush()
         except Exception as e:  # noqa: BLE001 — network failures are routine; queue covers us
@@ -198,11 +176,11 @@ class FortifyForwarder:
             return
         if old is not None and old.state == new.state:
             return
-        if kind == "switch":
-            if new.state not in ("on", "off"):
-                return  # lights/switches: BOTH edges are activity (off = someone just left)
-        elif kind != "door" and new.state != "on":
-            return  # motion/occupancy: forward the on-edge only; doors send both edges
+        if new.state not in ("on", "off", "open", "closed"):
+            return
+        # ALL kinds forward BOTH edges (v0.5.0): motion's vacant edge is what tells the
+        # platform a latched occupancy ended — sustained occupancy is derived server-side
+        # from a scheduled task, so no periodic re-assertion is sent anymore.
         ts = (new.last_changed or new.last_updated).isoformat()
         self.queue.append({"entityId": entity_id, "state": new.state, "ts": ts})
         if len(self.queue) > QUEUE_LIMIT:
