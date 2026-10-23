@@ -26,7 +26,7 @@ from homeassistant.helpers.storage import Store
 
 from .const import (
     CANDIDATE_CLASSES, CANDIDATE_DOMAINS, CONF_API_KEY, CONF_LOCATION_ID, CONF_URL, DOMAIN,
-    EVENT_BATCH_MAX, FLUSH_SECONDS, INVENTORY_MINUTES, QUEUE_LIMIT,
+    EVENT_BATCH_MAX, FLUSH_SECONDS, INVENTORY_MAX, INVENTORY_MINUTES, QUEUE_LIMIT,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -117,34 +117,48 @@ class FortifyForwarder:
         dev_reg = dr.async_get(self.hass)
         area_reg = ar.async_get(self.hass)
         out: list[dict] = []
-        candidates = list(self.hass.states.async_all("binary_sensor"))
+        skipped_settings = 0
+        # Fixed priority (binary_sensor, light, switch) and a stable sort inside each domain: the
+        # report is capped at INVENTORY_MAX, so what gets cut must be predictable and must never be a
+        # room's dimmer. Before 0.5.2 the domains were a set and the cap fell on whatever came last —
+        # at a site with UniFi Protect cameras (~20 switch.* settings each) that was every light.*.
         for domain in CANDIDATE_DOMAINS:
-            candidates.extend(self.hass.states.async_all(domain))
-        for state in candidates:
-            domain = state.entity_id.split(".")[0]
-            dc = state.attributes.get("device_class")
-            if domain == "binary_sensor":
-                if dc not in CANDIDATE_CLASSES:
-                    continue
-            else:
-                dc = dc or domain  # lights/switches usually have no device_class
-            area_name = ""
-            ent = ent_reg.async_get(state.entity_id)
-            if ent:
-                area_id = ent.area_id
-                if not area_id and ent.device_id:
-                    dev = dev_reg.async_get(ent.device_id)
-                    area_id = dev.area_id if dev else None
-                if area_id:
-                    area = area_reg.async_get_area(area_id)
-                    area_name = area.name if area else ""
-            out.append({
-                "entityId": state.entity_id,
-                "name": state.attributes.get("friendly_name") or state.entity_id,
-                "area": area_name,
-                "deviceClass": dc,
-            })
-        return out[:500]
+            for state in sorted(self.hass.states.async_all(domain), key=lambda s: s.entity_id):
+                dc = state.attributes.get("device_class")
+                if domain == "binary_sensor":
+                    if dc not in CANDIDATE_CLASSES:
+                        continue
+                else:
+                    dc = dc or domain  # lights/switches usually have no device_class
+                area_name = ""
+                ent = ent_reg.async_get(state.entity_id)
+                if ent:
+                    # config / diagnostic entities (detection toggles, overlays, status LEDs, privacy
+                    # mode) are settings, not activity — never report them as candidates
+                    if ent.entity_category is not None:
+                        skipped_settings += 1
+                        continue
+                    area_id = ent.area_id
+                    if not area_id and ent.device_id:
+                        dev = dev_reg.async_get(ent.device_id)
+                        area_id = dev.area_id if dev else None
+                    if area_id:
+                        area = area_reg.async_get_area(area_id)
+                        area_name = area.name if area else ""
+                out.append({
+                    "entityId": state.entity_id,
+                    "name": state.attributes.get("friendly_name") or state.entity_id,
+                    "area": area_name,
+                    "deviceClass": dc,
+                })
+        if len(out) > INVENTORY_MAX:
+            _LOGGER.warning(
+                "inventory: %d candidates exceed the platform cap of %d; reporting the first %d "
+                "(binary_sensor, then light, then switch — %d switch.* entities cut)",
+                len(out), INVENTORY_MAX, INVENTORY_MAX, len(out) - INVENTORY_MAX,
+            )
+        _LOGGER.debug("inventory: %d candidates (%d config/diagnostic entities skipped)", len(out), skipped_settings)
+        return out[:INVENTORY_MAX]
 
     async def _report_inventory(self, _now=None) -> None:
         try:
